@@ -26,7 +26,7 @@ The linked masters are 7680 × 4320 progressive JPEGs. Lightweight 1280 × 720 p
 
 - Opens a desktop GUI, maximized on Windows, with native-resolution defaults.
 - Generates a new image each time you press **Generate art** or the spacebar.
-- Shows the seed used for each generation.
+- Offers Random, Warm, Cool, Earthy, Neon, and Monochrome palette styles; each render still generates a fresh composition and palette.
 - Previews the image and saves PNG or JPEG.
 - Uses CPU worker threads to render rows in parallel.
 - Provides a CLI for automation, custom sizes, and repeatable output.
@@ -71,11 +71,14 @@ random_art_generator --output artwork.png
 # Render a 4K image with a reproducible seed
 random_art_generator --width 3840 --height 2160 --seed 31415 --output study.png
 
+# Generate fresh artwork with a neon palette
+random_art_generator --width 3840 --height 2160 --palette neon --output neon-study.png
+
 # Use all available CPU workers by default, or select a count explicitly
 random_art_generator --width 7680 --height 4320 --seed 42 --threads 8 --output large.png
 ```
 
-Run `random_art_generator --help` for all options. On headless or unsupported display environments, provide both `--width` and `--height`. Images are limited to 300 million pixels to reduce accidental memory exhaustion.
+Use `--palette` with `random`, `warm`, `cool`, `earthy`, `neon`, or `monochrome`; the default is `random`. Run `random_art_generator --help` for all options. On headless or unsupported display environments, provide both `--width` and `--height`. Images are limited to 300 million pixels to reduce accidental memory exhaustion.
 
 ## How an image is made
 
@@ -87,7 +90,7 @@ The seed initializes `std::mt19937_64`. That pseudorandom engine supplies the pa
 
 ### 2. Randomize the scene parameters
 
-For each render, the program samples values such as phase, rotation, frequencies, domain-warp strength, center offsets, blob locations, cell sites, stroke endpoints, shape type, and pixel-tile size. It also samples four independent RGB anchor colors. The palette is not constrained to a complementary or otherwise pleasing color scheme.
+For each render, the program samples values such as phase, rotation, frequencies, domain-warp strength, center offsets, blob locations, cell sites, stroke endpoints, shape type, and pixel-tile size. It also generates four fresh color anchors. The default Random palette uses independent RGB colors; optional palette styles constrain the hues and tones without fixing the colors or composition.
 
 ### 3. Evaluate all fields for every pixel
 
@@ -108,7 +111,7 @@ The renderer maps a pixel coordinate to a normalized image plane, rotates and wa
 | Coarse/fine grain | Two seeded hash scales add subtle local and block-level variation. |
 | Multiscale value noise | Three interpolated lattice scales add smooth variation across different sizes. |
 
-The ten structural values are averaged. The grain and value-noise values are averaged and mixed into that structural result at 25%. A four-color random palette maps the combined scalar field to RGB. Each channel is interpolated between unrelated random anchors; no post-process glow, preferred brightness, or per-pixel white-noise layer is applied.
+The ten structural values are averaged. The grain and value-noise values are averaged and mixed into that structural result at 25%. A four-color palette maps the combined scalar field to RGB. Palette styles guide the generated colors while leaving the geometry, fields, and individual palette colors randomized; no post-process glow or per-pixel white-noise layer is applied.
 
 ### 4. Render in parallel and export
 

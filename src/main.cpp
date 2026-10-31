@@ -20,13 +20,13 @@
 
 #if defined(RANDOM_ART_GUI) && !defined(_WIN32)
 #include <QApplication>
+#include <QComboBox>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QGuiApplication>
 #include <QImage>
 #include <QLabel>
-#include <QLineEdit>
 #include <QMainWindow>
 #include <QMessageBox>
 #include <QPushButton>
@@ -70,12 +70,22 @@ namespace {
 
 std::uint64_t random_seed();
 
+enum class PaletteStyle {
+    Random,
+    Warm,
+    Cool,
+    Earthy,
+    Neon,
+    Monochrome
+};
+
 struct Options {
     int width = 0;
     int height = 0;
     unsigned threads = std::max(1u, std::thread::hardware_concurrency());
     std::uint64_t seed = random_seed();
     std::string output = "random-art.png";
+    PaletteStyle palette = PaletteStyle::Random;
     bool help = false;
 };
 
@@ -94,6 +104,17 @@ bool parse_positive(const std::string& value, int& result) {
     } catch (const std::exception&) {
         return false;
     }
+}
+
+bool parse_palette_style(const std::string& value, PaletteStyle& style) {
+    if (value == "random") style = PaletteStyle::Random;
+    else if (value == "warm") style = PaletteStyle::Warm;
+    else if (value == "cool") style = PaletteStyle::Cool;
+    else if (value == "earthy") style = PaletteStyle::Earthy;
+    else if (value == "neon") style = PaletteStyle::Neon;
+    else if (value == "monochrome") style = PaletteStyle::Monochrome;
+    else return false;
+    return true;
 }
 
 bool detect_display_size(int& width, int& height) {
@@ -145,7 +166,8 @@ bool parse_options(int argc, char** argv, Options& options) {
         if (arg == "--help" || arg == "-h") {
             options.help = true;
         } else if (arg == "--width" || arg == "--height" ||
-                   arg == "--threads" || arg == "--seed" || arg == "--output") {
+                   arg == "--threads" || arg == "--seed" || arg == "--output" ||
+                   arg == "--palette") {
             if (i + 1 >= argc) {
                 std::cerr << "Missing value for " << arg << '\n';
                 return false;
@@ -174,6 +196,10 @@ bool parse_options(int argc, char** argv, Options& options) {
                 }
             }
             if (arg == "--output") options.output = value;
+            if (arg == "--palette" && !parse_palette_style(value, options.palette)) {
+                std::cerr << "Palette must be one of: random, warm, cool, earthy, neon, monochrome.\n";
+                return false;
+            }
         } else {
             std::cerr << "Unknown option: " << arg << '\n';
             return false;
@@ -214,6 +240,102 @@ std::uint64_t random_seed() {
     return (static_cast<std::uint64_t>(entropy()) << 32) | entropy();
 }
 
+std::array<float, 3> hsv_to_rgb(float hue, float saturation, float value) {
+    hue -= std::floor(hue);
+    const float chroma = value * saturation;
+    const float section = hue * 6.0f;
+    const float intermediate = chroma * (1.0f - std::abs(std::fmod(section, 2.0f) - 1.0f));
+    std::array<float, 3> rgb{};
+    if (section < 1.0f) rgb = {chroma, intermediate, 0.0f};
+    else if (section < 2.0f) rgb = {intermediate, chroma, 0.0f};
+    else if (section < 3.0f) rgb = {0.0f, chroma, intermediate};
+    else if (section < 4.0f) rgb = {0.0f, intermediate, chroma};
+    else if (section < 5.0f) rgb = {intermediate, 0.0f, chroma};
+    else rgb = {chroma, 0.0f, intermediate};
+    const float offset = value - chroma;
+    for (auto& channel : rgb) channel += offset;
+    return rgb;
+}
+
+std::array<std::array<float, 3>, 4> make_palette(
+    PaletteStyle style, std::mt19937_64& random) {
+    std::uniform_real_distribution<float> unit(0.0f, 1.0f);
+    std::array<std::array<float, 3>, 4> palette{};
+    if (style == PaletteStyle::Random) {
+        for (auto& color : palette) {
+            for (auto& channel : color) channel = unit(random);
+        }
+        return palette;
+    }
+
+    if (style == PaletteStyle::Monochrome) {
+        for (auto& color : palette) {
+            const float value = 0.08f + unit(random) * 0.84f;
+            color = {value, value, value};
+        }
+        return palette;
+    }
+
+    float hueMin = 0.0f;
+    float hueMax = 1.0f;
+    float hueSpread = 0.12f;
+    float saturationMin = 0.65f;
+    float saturationMax = 1.0f;
+    float valueMin = 0.55f;
+    float valueMax = 1.0f;
+    switch (style) {
+    case PaletteStyle::Warm:
+        hueMin = 0.01f;
+        hueMax = 0.15f;
+        hueSpread = 0.075f;
+        saturationMin = 0.55f;
+        saturationMax = 0.95f;
+        valueMin = 0.55f;
+        valueMax = 1.0f;
+        break;
+    case PaletteStyle::Cool:
+        hueMin = 0.50f;
+        hueMax = 0.76f;
+        hueSpread = 0.09f;
+        saturationMin = 0.45f;
+        saturationMax = 0.9f;
+        valueMin = 0.45f;
+        valueMax = 0.95f;
+        break;
+    case PaletteStyle::Earthy:
+        hueMin = 0.06f;
+        hueMax = 0.23f;
+        hueSpread = 0.065f;
+        saturationMin = 0.3f;
+        saturationMax = 0.75f;
+        valueMin = 0.28f;
+        valueMax = 0.85f;
+        break;
+    case PaletteStyle::Neon:
+        hueSpread = 0.16f;
+        saturationMin = 0.88f;
+        saturationMax = 1.0f;
+        valueMin = 0.78f;
+        valueMax = 1.0f;
+        break;
+    case PaletteStyle::Random:
+    case PaletteStyle::Monochrome:
+        break;
+    }
+
+    const float baseHue = hueMin + unit(random) * (hueMax - hueMin);
+    const float direction = unit(random) < 0.5f ? -1.0f : 1.0f;
+    for (std::size_t i = 0; i < palette.size(); ++i) {
+        const float position = static_cast<float>(i) / (palette.size() - 1) - 0.5f;
+        const float hue = baseHue + direction * position * hueSpread
+                        + (unit(random) - 0.5f) * hueSpread * 0.3f;
+        const float saturation = saturationMin + unit(random) * (saturationMax - saturationMin);
+        const float value = valueMin + unit(random) * (valueMax - valueMin);
+        palette[i] = hsv_to_rgb(hue, saturation, value);
+    }
+    return palette;
+}
+
 float value_noise(std::uint64_t seed, float x, float y) {
     const int x0 = static_cast<int>(std::floor(x));
     const int y0 = static_cast<int>(std::floor(y));
@@ -236,10 +358,7 @@ std::vector<Pixel> render(const Options& options) {
     std::mt19937_64 random(options.seed);
     std::uniform_real_distribution<float> unit(0.0f, 1.0f);
     std::uniform_real_distribution<float> signedUnit(-1.0f, 1.0f);
-    std::array<std::array<float, 3>, 4> palette{};
-    for (auto& color : palette) {
-        for (auto& channel : color) channel = unit(random);
-    }
+    const auto palette = make_palette(options.palette, random);
     const float phaseA = unit(random) * 6.2831853f;
     const float phaseB = unit(random) * 6.2831853f;
     const float frequencyX = 2.0f + unit(random) * 16.0f;
@@ -602,6 +721,7 @@ void print_help() {
               << "  --output FILE Output .png or .jpg file\n"
               << "  --seed N      Reproduce a particular image\n"
               << "  --threads N   CPU worker count (default: detected cores)\n"
+              << "  --palette NAME Palette style: random, warm, cool, earthy, neon, monochrome\n"
               << "  --help        Show this help\n"
               << "  Missing dimensions default to the detected primary display size.\n"
               << "Images are limited to 300 million pixels to protect memory.\n";
@@ -611,7 +731,7 @@ void print_help() {
 constexpr UINT kRenderFinished = WM_APP + 1;
 constexpr int kWidthControl = 101;
 constexpr int kHeightControl = 102;
-constexpr int kSeedControl = 103;
+constexpr int kPaletteControl = 103;
 constexpr int kGenerateControl = 104;
 constexpr int kSaveControl = 105;
 
@@ -619,14 +739,13 @@ struct RenderResult {
     std::vector<Pixel> pixels;
     int width = 0;
     int height = 0;
-    std::uint64_t seed = 0;
     std::string error;
 };
 
 HWND g_window = nullptr;
 HWND g_widthEdit = nullptr;
 HWND g_heightEdit = nullptr;
-HWND g_seedEdit = nullptr;
+HWND g_paletteCombo = nullptr;
 HWND g_generateButton = nullptr;
 HWND g_saveButton = nullptr;
 HWND g_status = nullptr;
@@ -668,28 +787,31 @@ void start_win32_generation() {
                     L"Image too large", MB_OK | MB_ICONWARNING);
         return;
     }
+    const LRESULT paletteIndex = SendMessageW(g_paletteCombo, CB_GETCURSEL, 0, 0);
+    if (paletteIndex < 0 ||
+        paletteIndex > static_cast<LRESULT>(PaletteStyle::Monochrome)) {
+        MessageBoxW(g_window, L"Choose a palette style.", L"Invalid palette",
+                    MB_OK | MB_ICONWARNING);
+        return;
+    }
     const auto seed = random_seed();
-    _ui64tow_s(seed, text, _countof(text), 10);
-    SetWindowTextW(g_seedEdit, text);
 
     if (g_renderThread.joinable()) g_renderThread.join();
     Options options;
     options.width = width;
     options.height = height;
     options.seed = seed;
+    options.palette = static_cast<PaletteStyle>(paletteIndex);
     options.threads = std::max(1u, std::thread::hardware_concurrency());
     EnableWindow(g_generateButton, FALSE);
     EnableWindow(g_saveButton, FALSE);
-    const std::wstring progress = L"Blending all art algorithms (seed " +
-        std::to_wstring(seed) + L")...";
-    set_status(progress.c_str());
+    set_status(L"Blending all art algorithms...");
     InvalidateRect(g_window, nullptr, TRUE);
 
     g_renderThread = std::thread([options] {
         auto result = std::make_unique<RenderResult>();
         result->width = options.width;
         result->height = options.height;
-        result->seed = options.seed;
         try {
             result->pixels = render(options);
         } catch (const std::exception& error) {
@@ -774,9 +896,18 @@ LRESULT CALLBACK random_art_window_proc(HWND window, UINT message,
         make(L"STATIC", L"Height", 0, 170, 19, 48, 24, 0);
         g_heightEdit = make(L"EDIT", L"", WS_BORDER | ES_NUMBER, 220, 16, 95, 28,
                             kHeightControl);
-        make(L"STATIC", L"Seed", 0, 328, 19, 35, 24, 0);
-        g_seedEdit = make(L"EDIT", L"", WS_BORDER | ES_READONLY, 365, 16, 155, 28,
-                          kSeedControl);
+        make(L"STATIC", L"Palette", 0, 328, 19, 48, 24, 0);
+        g_paletteCombo = make(L"COMBOBOX", L"", WS_BORDER | CBS_DROPDOWNLIST |
+                              WS_VSCROLL, 382, 16, 138, 160, kPaletteControl);
+        const wchar_t* paletteNames[] = {
+            L"Random", L"Warm", L"Cool", L"Earthy", L"Neon", L"Monochrome"
+        };
+        for (const auto* paletteName : paletteNames) {
+            SendMessageW(g_paletteCombo, CB_ADDSTRING, 0,
+                         reinterpret_cast<LPARAM>(paletteName));
+        }
+        SendMessageW(g_paletteCombo, CB_SETCURSEL,
+                     static_cast<WPARAM>(PaletteStyle::Random), 0);
         g_generateButton = make(L"BUTTON", L"Generate art", BS_OWNERDRAW,
                                 540, 16, 130, 28, kGenerateControl);
         g_saveButton = make(L"BUTTON", L"Save image...", BS_OWNERDRAW,
@@ -787,8 +918,6 @@ LRESULT CALLBACK random_art_window_proc(HWND window, UINT message,
         SetWindowTextW(g_widthEdit, value);
         _itow_s(g_nativeHeight, value, _countof(value), 10);
         SetWindowTextW(g_heightEdit, value);
-        _ui64tow_s(random_seed(), value, _countof(value), 10);
-        SetWindowTextW(g_seedEdit, value);
         EnableWindow(g_saveButton, FALSE);
         return 0;
     }
@@ -803,7 +932,8 @@ LRESULT CALLBACK random_art_window_proc(HWND window, UINT message,
         }
         break;
     case WM_CTLCOLORSTATIC:
-    case WM_CTLCOLOREDIT: {
+    case WM_CTLCOLOREDIT:
+    case WM_CTLCOLORLISTBOX: {
         const HDC dc = reinterpret_cast<HDC>(wParam);
         SetTextColor(dc, RGB(255, 255, 255));
         SetBkColor(dc, RGB(0, 0, 0));
@@ -867,9 +997,7 @@ LRESULT CALLBACK random_art_window_proc(HWND window, UINT message,
             }
         }
         EnableWindow(g_saveButton, TRUE);
-        const std::wstring ready = L"All algorithms blended | seed: " +
-            std::to_wstring(result->seed) +
-            L" | Use Save image to export PNG or JPEG.";
+        const std::wstring ready = L"All algorithms blended | Use Save image to export PNG or JPEG.";
         set_status(ready.c_str());
         InvalidateRect(window, nullptr, TRUE);
         return 0;
@@ -973,19 +1101,21 @@ public:
         height_->setRange(1, 100000);
         height_->setValue(nativeHeight);
         height_->setPrefix("Height ");
-        seed_ = new QLineEdit(QString::number(
-            static_cast<qulonglong>(random_seed())), central);
-        seed_->setReadOnly(true);
-        seed_->setMaximumWidth(190);
-        seed_->setPlaceholderText("Seed");
+        palette_ = new QComboBox(central);
+        palette_->addItem("Random", static_cast<int>(PaletteStyle::Random));
+        palette_->addItem("Warm", static_cast<int>(PaletteStyle::Warm));
+        palette_->addItem("Cool", static_cast<int>(PaletteStyle::Cool));
+        palette_->addItem("Earthy", static_cast<int>(PaletteStyle::Earthy));
+        palette_->addItem("Neon", static_cast<int>(PaletteStyle::Neon));
+        palette_->addItem("Monochrome", static_cast<int>(PaletteStyle::Monochrome));
 
         auto* generate = new QPushButton("Generate art", central);
         save_ = new QPushButton("Save image…", central);
         save_->setEnabled(false);
         controls->addWidget(width_);
         controls->addWidget(height_);
-        controls->addWidget(new QLabel("Seed", central));
-        controls->addWidget(seed_);
+        controls->addWidget(new QLabel("Palette", central));
+        controls->addWidget(palette_);
         controls->addStretch();
         controls->addWidget(generate);
         controls->addWidget(save_);
@@ -1016,9 +1146,8 @@ public:
                 preview_->setImage(image_);
                 save_->setEnabled(true);
                 statusBar()->showMessage(
-                    QString("Generated %1 × %2 | all algorithms blended | seed: %3")
-                        .arg(width_->value()).arg(height_->value())
-                        .arg(static_cast<qulonglong>(optionsSeed_)));
+                    QString("Generated %1 × %2 | %3 palette | all algorithms blended")
+                        .arg(width_->value()).arg(palette_->currentText()));
             } catch (const std::exception& error) {
                 QMessageBox::critical(this, "Generation failed", error.what());
                 statusBar()->showMessage("Generation failed");
@@ -1038,14 +1167,11 @@ private:
                                  "Choose dimensions with at most 300 million pixels.");
             return;
         }
-        const auto seedValue = random_seed();
-        optionsSeed_ = seedValue;
-        seed_->setText(QString::number(static_cast<qulonglong>(seedValue)));
-
         Options options;
         options.width = width;
         options.height = height;
-        options.seed = seedValue;
+        options.seed = random_seed();
+        options.palette = static_cast<PaletteStyle>(palette_->currentData().toInt());
         options.threads = std::max(1u, std::thread::hardware_concurrency());
         generate->setEnabled(false);
         save_->setEnabled(false);
@@ -1072,13 +1198,12 @@ private:
 
     QSpinBox* width_ = nullptr;
     QSpinBox* height_ = nullptr;
-    QLineEdit* seed_ = nullptr;
+    QComboBox* palette_ = nullptr;
     QPushButton* save_ = nullptr;
     ImagePreview* preview_ = nullptr;
     QFutureWatcher<std::vector<Pixel>> watcher_;
     std::vector<Pixel> pixels_;
     QImage image_;
-    std::uint64_t optionsSeed_ = 0;
 };
 #endif
 
@@ -1145,7 +1270,7 @@ int main(int argc, char** argv) {
     application.setFont(QFont("Consolas", 10, QFont::Bold));
     application.setStyleSheet(
         "QWidget { background: #000000; color: #ffffff; }"
-        "QLineEdit, QSpinBox { background: #000000; color: #ffffff; "
+        "QComboBox, QSpinBox { background: #000000; color: #ffffff; "
         "border: 2px solid #ffffff; padding: 4px; border-radius: 0px; }"
         "QPushButton { background: #000000; color: #ffffff; "
         "border: 2px solid #ffffff; padding: 8px; border-radius: 0px; }"

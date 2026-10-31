@@ -23,10 +23,10 @@ From the project folder:
 
 Each script configures a Release build, builds the program, and opens the GUI.
 The canvas starts at the primary display's pixel resolution. Choose **Save
-image…** to export PNG or JPEG. Press **Generate art** for a fresh random seed
-and a new blend of all procedural fields each time; the seed used is shown in
-the window. Press **Spacebar** to generate again. The interface uses a
-monochrome, squared-off pixel-workbench style.
+image…** to export PNG or JPEG. Press **Generate art** for a fresh composition
+each time. Choose Random, Warm, Cool, Earthy, Neon, or Monochrome to guide the
+palette while keeping each render new. Press **Spacebar** to generate again.
+The interface uses a monochrome, squared-off pixel-workbench style.
 
 ## Build and customize manually
 
@@ -47,6 +47,10 @@ To generate a 4K PNG with a repeatable seed from the command line:
 # macOS/Linux
 ./build/random_art_generator --width 3840 --height 2160 --seed 42 --output art.png
 ```
+
+Choose a palette with `--palette random`, `warm`, `cool`, `earthy`, `neon`, or
+`monochrome`. In the GUI, each generation still creates a fresh composition and
+fresh colors within the selected palette style.
 
 The GUI detects the primary display's pixel resolution (Windows and macOS, and
 Linux when built with X11 development libraries and run in an X11 session). Set
